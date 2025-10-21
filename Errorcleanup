@@ -248,4 +248,4 @@ Add-Content -Path $logFile -Value "=== Daily Cleanup Completed at $endDate ==="
 Write-Progress -Activity "System Cleanup" -Status "Complete" -PercentComplete 100 -Completed
 
 Write-Output "SUCCESS"
-exit 0
+exit 0  
