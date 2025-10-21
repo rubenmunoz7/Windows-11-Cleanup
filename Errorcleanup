@@ -1,12 +1,11 @@
 # Windows 11 Daily Cleanup Script
 # This script performs daily system cleanup operations silently
-
 # Requires -RunAsAdministrator
 
 # Initialize logging to ProgramData
 $logFolder = "C:\ProgramData\CleanupLogs"
 if (-not (Test-Path $logFolder)) {
-    New-Item -Path $logFolder -ItemType Directory -Force
+    New-Item -Path $logFolder -ItemType Directory -Force | Out-Null
 }
 $logFile = "$logFolder\CleanupLog_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
 $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -26,21 +25,20 @@ function Remove-FolderContents {
         Write-Progress -Activity "System Cleanup" -Status "Cleaning $Description" -PercentComplete 0
         
         try {
-            $items = Get-ChildItem -Path $Path -Force
+            $items = Get-ChildItem -Path $Path -Force -ErrorAction SilentlyContinue
             $total = $items.Count
             $current = 0
             
             foreach ($item in $items) {
                 $current++
-                $percent = ($current / $total) * 100
+                $percent = if ($total) { ($current / $total) * 100 } else { 100 }
                 Write-Progress -Activity "System Cleanup" -Status "Cleaning $Description" -PercentComplete $percent -CurrentOperation $item.Name
-                
                 try {
-                    Remove-Item $item.FullName -Force -Recurse -ErrorAction Stop
+                    Remove-Item -LiteralPath $item.FullName -Force -Recurse -ErrorAction Stop
                 } catch {
                     $errMsg = $_.Exception.Message
                     Add-Content -Path $logFile -Value ("Could not remove " + $item.FullName + ": " + $errMsg)
-                    Write-Output "WARN: Could not remove $($item.FullName) — $errMsg"
+                    Write-Output "WARN: Could not remove $($item.FullName) - $errMsg"
                 }
             }
             
@@ -51,13 +49,14 @@ function Remove-FolderContents {
             Write-Progress -Activity "System Cleanup" -Status "Cleaning $Description" -PercentComplete 100 -Completed
             $errMsg = $_.Exception.Message
             Add-Content -Path $logFile -Value ("Error cleaning " + $Description + ": " + $errMsg)
-            Write-Output "ERROR: Cleaning $Description — $errMsg"
+            Write-Output "ERROR: Cleaning $Description - $errMsg"
         }
     } else {
         Add-Content -Path $logFile -Value "$Description path not found: $Path"
         Write-Output "INFO: $Description path not found ($Path)"
     }
 }
+
 # Function to clean Chrome cache while preserving important data
 function Remove-ChromeCache {
     param (
@@ -71,13 +70,13 @@ function Remove-ChromeCache {
         Write-Progress -Activity "System Cleanup" -Status "Cleaning Chrome Cache" -PercentComplete 0
         
         try {
-            $items = Get-ChildItem -Path $CachePath -Force
+            $items = Get-ChildItem -Path $CachePath -Force -ErrorAction SilentlyContinue
             $total = $items.Count
             $current = 0
             
             foreach ($item in $items) {
                 $current++
-                $percent = ($current / $total) * 100
+                $percent = if ($total) { ($current / $total) * 100 } else { 100 }
                 Write-Progress -Activity "System Cleanup" -Status "Cleaning Chrome Cache" -PercentComplete $percent -CurrentOperation $item.Name
                 
                 $shouldPreserve = $false
@@ -90,7 +89,7 @@ function Remove-ChromeCache {
                 
                 if (-not $shouldPreserve) {
                     try {
-                        Remove-Item $item.FullName -Force -Recurse -ErrorAction Stop
+                        Remove-Item -LiteralPath $item.FullName -Force -Recurse -ErrorAction Stop
                     } catch {
                         Add-Content -Path $logFile -Value "Could not remove Chrome cache item $($item.FullName): $($_.Exception.Message)"
                         Write-Output "WARN: Chrome cache item not removed $($item.Name)"
@@ -104,7 +103,7 @@ function Remove-ChromeCache {
         } catch {
             Write-Progress -Activity "System Cleanup" -Status "Cleaning Chrome Cache" -PercentComplete 100 -Completed
             Add-Content -Path $logFile -Value "Error cleaning Chrome Cache: $($_.Exception.Message)"
-            Write-Output "ERROR: Chrome cache — $($_.Exception.Message)"
+            Write-Output "ERROR: Chrome cache - $($_.Exception.Message)"
         }
     } else {
         Write-Output "INFO: Chrome cache path not found ($CachePath)"
@@ -128,8 +127,8 @@ function Remove-EdgeCache {
                 Add-Content -Path $logFile -Value "Cleared: $path"
                 Write-Output "OK: Cleared $path"
             } catch {
-                Add-Content -Path $logFile -Value "Error clearing Edge cache path ${path}:$($_.Exception.Message)"
-                Write-Output "ERROR: Edge path $path — $($_.Exception.Message)"
+                Add-Content -Path $logFile -Value "Error clearing Edge cache path $path: $($_.Exception.Message)"
+                Write-Output "ERROR: Edge path $path - $($_.Exception.Message)"
             }
         } else {
             Add-Content -Path $logFile -Value "Edge cache path not found: $path"
@@ -168,7 +167,7 @@ try {
         Write-Output "OK: Windows Update cache cleared"
     } catch {
         Add-Content -Path $logFile -Value "Error managing Windows Update service: $($_.Exception.Message)"
-        Write-Output "ERROR: Windows Update service — $($_.Exception.Message)"
+        Write-Output "ERROR: Windows Update service - $($_.Exception.Message)"
     }
     Write-Progress -Activity "System Cleanup" -Status "Cleaning Windows Update Cache" -PercentComplete 100 -Completed
     
@@ -200,7 +199,7 @@ try {
         Write-Output "OK: Thumbnail cache cleared"
     } catch {
         Add-Content -Path $logFile -Value "Error managing Thumbnail cache: $($_.Exception.Message)"
-        Write-Output "ERROR: Thumbnail cache — $($_.Exception.Message)"
+        Write-Output "ERROR: Thumbnail cache - $($_.Exception.Message)"
     }
     Write-Progress -Activity "System Cleanup" -Status "Cleaning Thumbnail Cache" -PercentComplete 100 -Completed
     
@@ -218,7 +217,7 @@ try {
     Write-Progress -Activity "System Cleanup" -Status "Running Disk Cleanup" -PercentComplete 0
     Add-Content -Path $logFile -Value "Running Disk Cleanup..."
     $regKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches"
-    Get-ChildItem $regKey | ForEach-Object {
+    Get-ChildItem $regKey -ErrorAction SilentlyContinue | ForEach-Object {
         Set-ItemProperty -Path "$regKey\$($_.PSChildName)" -Name "StateFlags0064" -Value 2 -Type DWord -ErrorAction SilentlyContinue
     }
     Start-Process cleanmgr.exe -ArgumentList "/sagerun:64" -Wait -NoNewWindow
@@ -228,14 +227,14 @@ try {
     
     # Clean old logs
     $logRetentionDate = (Get-Date).AddDays(-7)
-    Get-ChildItem -Path (Split-Path $logFile) -Filter "CleanupLog*.txt" | 
+    Get-ChildItem -Path (Split-Path $logFile) -Filter "CleanupLog*.txt" -ErrorAction SilentlyContinue | 
     Where-Object { $_.LastWriteTime -lt $logRetentionDate } | 
     ForEach-Object {
-        Remove-Item $_.FullName -Force
+        Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
         Add-Content -Path $logFile -Value "Removed old log file: $($_.Name)"
         Write-Output "INFO: Removed old log $($_.Name)"
     }
-    
+
 } catch {
     Add-Content -Path $logFile -Value "Critical error during cleanup: $($_.Exception.Message)"
     Write-Progress -Activity "System Cleanup" -Status "Error" -PercentComplete 100 -Completed
@@ -248,4 +247,4 @@ Add-Content -Path $logFile -Value "=== Daily Cleanup Completed at $endDate ==="
 Write-Progress -Activity "System Cleanup" -Status "Complete" -PercentComplete 100 -Completed
 
 Write-Output "SUCCESS"
-exit 0  
+exit 0
